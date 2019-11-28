@@ -1,0 +1,337 @@
+---
+title: "Spotify"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# install.packages("ggplot2")
+# install.packages("caret")
+# install.packages("reshape")
+# install.packages("psych")
+# install.packages("e1071")
+# install.packages("kernlab")
+# install.packages("naivebayes")
+# install.packages("C50")
+# install.packages("randomForest")
+# install.packages("caretEnsemble")
+# install.packages("pROC")
+```
+
+1. Data Acquisition and EDA
+```{r}
+library(ggplot2)
+setwd("C:/Users/omkar/OneDrive/Desktop/R/Project")
+
+spotify_modified <- read.csv("Spotify_final.csv", sep = ",", header = T)
+spotify_modified
+str(spotify_modified)
+
+hist(spotify_modified$popularity)
+
+popular_57 <- subset(spotify_modified, popularity > 57)
+artist_drake <- subset(spotify_modified, artist_name == "Drake")
+
+ggplot(popular_57, aes(x=time_signature, y=popularity)) + geom_bar(stat = "identity", color="blue")
+ggplot(popular_57, aes(x=key, y=popularity)) + geom_bar(stat = "identity", color="black")
+ggplot(popular_57, aes(x=mode, y=popularity)) + geom_bar(stat = "identity")
+ggplot(spotify_modified, aes(x=tempo, y=popularity)) + geom_point() + geom_smooth(method = lm)
+ggplot(popular_57, aes(x=tempo, y=popularity)) + geom_point() + geom_smooth(method = lm)
+
+#removing redundant columns
+spotify_data <- spotify_modified[,-c(1,2,3,4)]
+spotify_data
+
+```
+
+2. Data Exploration.
+-> 25% of total data above the popularity level 57.
+-> prominent features in a popular song
+```{r}
+library(caret)
+library(caTools)
+library(reshape)
+library(psych)
+#detection of outliers
+outliers_box <- boxplot(spotify_data$energy)$out
+which(spotify_data$energy %in% outliers_box)
+outliers_box <- boxplot(spotify_data$liveness)$out
+which(spotify_data$liveness %in% outliers_box)
+
+#employing cooks distance to compute the influence exerted by each data point on predicted outcome
+mod_out <- lm(popularity ~.-popularity, data = spotify_data)
+cooksd <- cooks.distance(mod_out)
+m <- mean(cooksd, na.rm = T)
+plot(cooksd, pch="*", cex=2, main = "Influential Obs by Cooks distance")
+abline(h=4*m, col="red", untf = F)  # add cutoff line
+
+#outliers
+influential <- as.numeric(names(cooksd)[(cooksd>4*m)])
+#influential rows
+influential_row <- spotify_data[influential,]
+#detecting extreme outliers and removing them
+car::outlierTest(mod_out)
+#row 5731 is extreme outlier as observed from the plot as well
+spotify_wout <- spotify_data[-5731,]
+
+#Correlation/collinearity analysis
+spotify_corr <- spotify_wout[,-c(7,10,13)]
+
+correl <- cor(spotify_corr)
+correl <- data.frame(as.list(correl[,1]))
+correl <- melt(correl)
+correl$absvalue <- abs(correl$value)
+
+pairs.panels(spotify_corr)
+
+```
+3. Data Cleaning & Shaping.
+```{r}
+library(caret)
+
+#data imputation
+na_count <- sapply(spotify_wout, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count
+#no missing values present
+
+#dummy coding
+spotify_dummy <- dummyVars("~.",data = spotify_wout , fullRank = T)
+spotify_transform <- data.frame(predict(spotify_dummy, newdata = spotify_wout))
+spotify_transform
+
+#feauture engineering
+for (i in 1:nrow(spotify_transform)) {
+  if (spotify_transform$popularity[i] < 57)
+    spotify_transform$popularity[i] <- 0
+  else
+    spotify_transform$popularity[i] <- 1
+}
+
+#normalization function
+normalize <- function(x){
+  return ((x-min(x))/(max(x)-min(x)))
+  }
+  
+#applying normalization function to available data
+spotify_n <- as.data.frame(lapply(spotify_transform, normalize))
+
+#principle component analysis
+pca_n <- princomp(spotify_corr, scores = T, cor = T)
+plot(pca_n)
+biplot(pca_n)
+
+```
+
+4. Model Construction
+
+```{r}
+library(caTools)
+#splitting dataset
+index <- sample.split(spotify_transform, SplitRatio = 2/3)
+spotify_train <- spotify_transform[index,]
+spotify_test <- spotify_transform[!index,]
+spotify_train
+spotify_test
+
+#splitting normalized dataset
+spotify_train_n <- spotify_n[index,]
+spotify_test_n <- spotify_n[!index,]
+spotify_train_n
+spotify_test_n
+```
+
+MODEL 1: Logistic Regression
+-> Binary target o/p, backfitting features
+-> Quick, less accurate
+```{r}
+#LOGISTIC REGRESSION
+#1
+# reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C + key.C. + key.D + key.D. + key.E + key.F + key.F. + key.G + key.G. + liveness + loudness + mode.Minor + speechiness + tempo + time_signature.1.4 + time_signature.3.4 + time_signature.4.4 + time_signature.5.4 + valence, data = spotify_transform)
+# summary(reg_gen)
+# 
+# #2
+# reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C + key.C. + key.D + key.D. + key.E + key.F + key.F. + key.G + key.G. + liveness + loudness + mode.Minor + speechiness + time_signature.1.4 + time_signature.3.4 + time_signature.4.4 + time_signature.5.4 + valence, data = spotify_transform)
+# summary(reg_gen)
+# 
+# #3
+# reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C + key.C. + key.D + key.D. + key.E + key.F + key.F. + key.G. + liveness + loudness + mode.Minor + speechiness + time_signature.1.4 + time_signature.3.4 + time_signature.4.4 + time_signature.5.4 + valence, data = spotify_transform)
+# summary(reg_gen)
+# 
+# #4
+# reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C + key.C. + key.D + key.D. + key.E + key.F + key.F. + key.G. + liveness + loudness + mode.Minor + speechiness + time_signature.1.4 + time_signature.3.4 + time_signature.4.4 + valence, data = spotify_transform)
+# summary(reg_gen)
+# 
+# #5
+# reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C + key.C. + key.D + key.D. + key.F + key.F. + key.G. + liveness + loudness + mode.Minor + speechiness + time_signature.1.4 + time_signature.3.4 + time_signature.4.4 + valence, data = spotify_transform)
+# summary(reg_gen)
+# 
+# #6
+# reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C + key.C. + key.D + key.D. + key.F + key.F. + key.G. + liveness + loudness + mode.Minor + speechiness + time_signature.1.4 + time_signature.3.4 + valence, data = spotify_transform)
+# summary(reg_gen)
+# 
+# #7
+# reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C + key.C. + key.D + key.D. + key.F. + key.G. + liveness + loudness + mode.Minor + speechiness + time_signature.1.4 + time_signature.3.4 + valence, data = spotify_transform)
+# summary(reg_gen)
+
+#8
+reg_gen <- glm(formula = popularity ~ acousticness + danceability + duration_ms + energy + instrumentalness + key.A. + key.B + key.C. + key.D + key.D. + key.F. + key.G. + liveness + loudness + mode.Minor + speechiness + time_signature.1.4 + time_signature.3.4 + valence, data = spotify_transform)
+summary(reg_gen)
+
+
+prediction <- predict(reg_gen, spotify_test, type = "response")
+summary(prediction)
+prediction <- ifelse(prediction>0.50, 1, 0)
+confusionMatrix(factor(prediction), factor(spotify_test$popularity))
+
+```
+
+MODEL 2: Naive Bayes
+-> Comparatively faster, tuned using laplace for better accuracy.
+```{r}
+#NAIVE BAYES
+library(e1071)
+library(caret)
+nb_model1 <- naiveBayes(as.factor(popularity)~., data = spotify_train_n)
+predict_nb1 <- predict(nb_model1, spotify_test_n, type = "class")
+confusionMatrix(table(predict_nb1,spotify_test_n$popularity), positive = "1")
+
+#tuning naive bayes
+nb_model2 <- naiveBayes(as.factor(popularity)~., data = spotify_train_n, laplace = 2)
+predict_nb2 <- predict(nb_model2, spotify_test_n, type = "class")
+confusionMatrix(table(predict_nb2,spotify_test_n$popularity), positive = "1")
+
+set.seed(400)
+
+ctrl <- trainControl(method="repeatedcv", number = 5)
+NB <- train(as.factor(popularity) ~ ., data = spotify_train_n, trControl = ctrl, method = "nb", na.action = na.omit)
+confusionMatrix(NB)
+
+```
+
+
+MODEL 3: Decision Tree
+-> Helps identify features that most likely make a song popular, slow but helps analyze all possible combination of features for a popular song
+-> Reasonably slower, more accurate, adaptive boosting improves accuracy
+```{r}
+#DECISION TREE
+library(C50)
+spotify_train$popularity <- as.factor(spotify_train$popularity)
+tree_model <- C5.0(spotify_train[,-1], spotify_train$popularity)
+
+spotify_test$popularity <- as.factor(spotify_test$popularity)
+
+tree_pred <- predict(tree_model, spotify_test)
+confusionMatrix(tree_pred, spotify_test$popularity)
+
+#improving model performance by adaptive boosting
+tree_boost10 <- C5.0(spotify_train[,-1], spotify_train$popularity, trials = 10)
+
+tree_pred_boost <- predict(tree_boost10, spotify_test)
+confusionMatrix(tree_pred_boost, spotify_test$popularity)
+
+```
+
+MODEL 4: Random Forest
+-> Faster, most accurate
+-> CV takes very long time
+```{r}
+#RANDOM FOREST
+library(randomForest)
+rf_model <- randomForest(as.factor(popularity)~., data = spotify_train)
+rf_pred <- predict(rf_model, spotify_test)
+confusionMatrix(table(rf_pred, spotify_test$popularity))
+
+set.seed(400)
+
+ctrl <- trainControl(method="repeatedcv", number = 5)
+DT <- train(as.factor(popularity) ~ ., data = spotify_train, trControl = ctrl, method = "ranger", na.action = na.omit)
+confusionMatrix(DT)
+
+```
+
+MODEL 5: Ensemble Model
+-> Helps improve machine learning algorithms by combining several models
+-> Can be used to decrease variance, bias or improve predictions
+```{r}
+#ENSEMBLE MODEL
+stack_pred <- data.frame(prediction,predict_nb2,tree_pred_boost,rf_pred,popularity=spotify_n$popularity, stringsAsFactors = F)
+
+stack_model <- train(popularity~., data = stack_pred, trControl = ctrl, method = "nnet")
+
+prediction_stack <- predict(stack_model,stack_pred)
+
+prediction_stack <- ifelse(prediction>0.43, 1, 0)
+confusionMatrix(as.factor(prediction_stack),spotify_test$popularity)
+```
+
+5. Evaluation of Models:
+-> ROC (Receiver Operating Characteristic) Curve: Plot test sensitivity v/s specificity (False positive rate)
+-> AUC (Area Under Curve): Correct predictions.
+-> Accuracy.
+```{r}
+library(pROC)
+
+#ACCURACY
+#Logistic Regression
+accuracy_logreg <- sum(diag(table(prediction,spotify_test$popularity)))/sum(table(prediction,spotify_test$popularity))
+#Naive Bayes
+accuracy_nb <- sum(diag(table(as.numeric(predict_nb2),spotify_test_n$popularity)))/sum(table(as.numeric(predict_nb2),spotify_test_n$popularity))
+#Decision Tree
+accuracy_dt <- sum(diag(table(as.numeric(tree_pred_boost),spotify_test$popularity)))/sum(table(as.numeric(tree_pred_boost),spotify_test$popularity))
+#Random Forest
+accuracy_rf <- sum(diag(table(as.numeric(rf_pred),spotify_test$popularity)))/sum(table(as.numeric(rf_pred),spotify_test$popularity))
+#Ensemble Model
+accuracy_em <- sum(diag(table(as.numeric(prediction_stack),spotify_test$popularity)))/sum(table(as.numeric(prediction_stack),spotify_test$popularity))
+
+
+#Logistic Regression
+roc_logreg <- roc(spotify_test$popularity,prediction)
+auc1 <- auc(roc_logreg)
+plot(roc_logreg)
+#Naive Bayes
+roc_nb <- roc(spotify_test_n$popularity,as.numeric(predict_nb2))
+auc2 <- auc(roc_nb)
+plot(roc_nb)
+#Decision Tree
+roc_dt <- roc(spotify_test$popularity,as.numeric(tree_pred_boost))
+auc3 <- auc(roc_dt)
+plot(roc_dt)
+#Random Forest
+roc_rf <- roc(spotify_test$popularity,as.numeric(rf_pred))
+auc4 <- auc(roc_rf)
+plot(roc_rf)
+#Ensemble Model
+roc_em <- roc(spotify_test$popularity,as.numeric(prediction_stack))
+auc5 <- auc(roc_em)
+plot(roc_em)
+
+Model <- c("Logistic Regression", "Naive Bayes", "Decision Tree", "Random Forest", "Ensemble Model")
+Accuracy <- c(accuracy_logreg, accuracy_nb, accuracy_dt, accuracy_rf, accuracy_em)
+AUC <- c(auc1, auc2, auc3, auc4, auc5)
+
+df <- data.frame(Model, Accuracy, AUC)
+df
+```
+
+6. Optimum features for popular songs
+```{r}
+
+mean(popular_57$danceability)
+mean(popular_57$energy)
+mean(popular_57$instrumentalness)
+mean(popular_57$loudness)
+mean(popular_57$tempo)
+
+#Artist Drake
+mean(artist_drake$danceability)
+mean(artist_drake$energy)
+mean(artist_drake$instrumentalness)
+mean(artist_drake$loudness)
+mean(artist_drake$tempo)
+
+table(popular_57$genre)
+```
