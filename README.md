@@ -20,6 +20,7 @@ Models: Logistic Regression (backfitted), Naive Bayes, Decision Tree, Random For
 
 OVERVIEW:
 -Data Acquisition and EDA
+
 -Data Exploration
 -Cleaning & Shaping
 -Model Construction
