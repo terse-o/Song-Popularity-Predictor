@@ -19,10 +19,15 @@ C50, randomForest, pROC.
 Models: Logistic Regression (backfitted), Naive Bayes, Decision Tree, Random Forest, Ensemble Model
 
 OVERVIEW:
+
 -Data Acquisition and EDA
 
 -Data Exploration
+
 -Cleaning & Shaping
+
 -Model Construction
+
 -Evaluation of Models
+
 -Optimum Features for Popular Songs
