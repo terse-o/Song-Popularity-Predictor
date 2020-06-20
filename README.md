@@ -33,3 +33,5 @@ OVERVIEW:
 -Evaluation of Models
 
 -Optimum Features for Popular Songs
+
+-Statistical Comparison with personal favorite artist - Drake
